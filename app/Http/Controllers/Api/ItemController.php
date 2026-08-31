@@ -12,7 +12,9 @@ class ItemController extends Controller
 {
     public function index(Request $request)
     {
-        $query = Item::with('user:id,name,student_id')->latest();
+        $query = Item::with('user:id,name,student_id')
+            ->where('status', 'ACTIVE')
+            ->latest();
 
         if ($request->filled('search')) {
             $s = $request->string('search');

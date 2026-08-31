@@ -98,12 +98,20 @@ class AuthController extends Controller
             'email' => ['required','email','max:120','unique:users,email,'.$user->id],
             'password' => ['nullable','string','min:8','confirmed'],
             'profile_image' => ['nullable','image','mimes:jpg,jpeg,png,webp','max:5120'],
+            'delete_profile_image' => ['nullable','boolean'],
         ]);
 
         if ($request->filled('password')) {
             $data['password'] = Hash::make($data['password']);
         } else {
             unset($data['password']);
+        }
+
+        if ($request->input('delete_profile_image') == '1' || $request->input('delete_profile_image') === true) {
+            if ($user->profile_image) {
+                Storage::disk('public')->delete($user->profile_image);
+            }
+            $data['profile_image'] = null;
         }
 
         if ($request->hasFile('profile_image')) {
