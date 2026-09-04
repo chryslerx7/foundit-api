@@ -171,23 +171,76 @@ class ItemController extends Controller
     {
         $opposite = $item->type === 'LOST' ? 'FOUND' : 'LOST';
 
-        $matches = Item::where('id','!=',$item->id)
-            ->where('type',$opposite)
-            ->where('status','ACTIVE')
-            ->where(function ($q) use ($item) {
-                $q->where('category',$item->category)
-                  ->orWhere('item_name','like','%'.$item->item_name.'%')
-                  ->orWhere('location','like','%'.$item->location.'%');
-            })
+        // Fetch all potential candidates of the opposite type that are ACTIVE
+        $candidates = Item::where('id', '!=', $item->id)
+            ->where('type', $opposite)
+            ->where('status', 'ACTIVE')
             ->with('user:id,name,student_id')
-            ->latest()->limit(10)->get();
+            ->get();
+
+        $scoredMatches = $candidates->map(function ($candidate) use ($item) {
+            $score = 0;
+
+            // 1. Category Match (High Importance)
+            if ($candidate->category === $item->category) {
+                $score += 30;
+            }
+
+            // 2. Item Name Similarity
+            $name1 = strtolower($item->item_name);
+            $name2 = strtolower($candidate->item_name);
+            if ($name1 === $name2) {
+                $score += 40;
+            } elseif (str_contains($name1, $name2) || str_contains($name2, $name1)) {
+                $score += 20;
+            }
+
+            // 3. Location Similarity
+            $loc1 = strtolower($item->location);
+            $loc2 = strtolower($candidate->location);
+            if ($loc1 === $loc2) {
+                $score += 25;
+            } elseif (str_contains($loc1, $loc2) || str_contains($loc2, $loc1)) {
+                $score += 15;
+            }
+
+            // 4. Date Proximity
+            try {
+                $date1 = \Carbon\Carbon::parse($item->date);
+                $date2 = \Carbon\Carbon::parse($candidate->date);
+                $diffDays = abs($date1->diffInDays($date2));
+                if ($diffDays <= 3) {
+                    $score += 10;
+                } elseif ($diffDays <= 7) {
+                    $score += 5;
+                }
+            } catch (\Exception $e) {}
+
+            // 5. Description Similarity
+            if ($item->description && $candidate->description) {
+                $desc1 = strtolower($item->description);
+                $desc2 = strtolower($candidate->description);
+                if (str_contains($desc1, $desc2) || str_contains($desc2, $desc1)) {
+                    $score += 5;
+                }
+            }
+
+            $candidate->match_score = $score;
+            return $candidate;
+        });
+
+        // Filter by threshold (e.g. 40 points) and sort by score
+        $finalMatches = $scoredMatches->filter(fn($m) => $m->match_score >= 40)
+            ->sortByDesc('match_score')
+            ->take(15)
+            ->values();
 
         return response()->json([
-            'success'=>true,
-            'items'=>$matches,
-            'total'=>$matches->count(),
-            'lost_count'=>0,
-            'found_count'=>0,
+            'success' => true,
+            'items' => $finalMatches,
+            'total' => $finalMatches->count(),
+            'lost_count' => 0,
+            'found_count' => 0,
         ]);
     }
 }
