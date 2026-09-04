@@ -169,6 +169,9 @@ class ItemController extends Controller
 
     public function matches(Request $request, Item $item)
     {
+        // Ownership check: Only the reporter can view possible matches for their item.
+        abort_unless($item->user_id === $request->user()->id, 403, 'Unauthorized access to matches.');
+
         $opposite = $item->type === 'LOST' ? 'FOUND' : 'LOST';
 
         // Fetch all potential candidates of the opposite type that are ACTIVE
