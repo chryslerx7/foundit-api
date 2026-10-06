@@ -93,4 +93,17 @@ class ChatController extends Controller
             'message' => $message->load('sender:id,name')
         ]);
     }
+
+    public function destroyMessage(Request $request, Message $message)
+    {
+        $userId = Auth::id();
+        abort_unless($message->sender_id === $userId, 403, 'Unauthorized message deletion.');
+
+        $message->delete();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Message deleted.'
+        ]);
+    }
 }
