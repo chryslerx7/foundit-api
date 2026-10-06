@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Conversation;
+use App\Models\ConversationHide;
 use App\Models\Message;
 use App\Models\Item;
 use Illuminate\Http\Request;
@@ -16,17 +17,21 @@ class ChatController extends Controller
         $userId = $request->user()->id;
 
         $conversations = Conversation::where(function ($q) use ($userId) {
-            $q->whereHas('lostItem', function($qq) use ($userId) {
-                $qq->where('user_id', $userId);
-            })->orWhereHas('foundItem', function($qq) use ($userId) {
-                $qq->where('user_id', $userId);
+            $q->where(function ($qq) use ($userId) {
+                $qq->whereHas('lostItem', function($qqq) use ($userId) {
+                    $qqq->where('user_id', $userId);
+                })->orWhereHas('foundItem', function($qqq) use ($userId) {
+                    $qqq->where('user_id', $userId);
+                });
+            })->orWhere(function ($qq) use ($userId) {
+                $qq->whereNotNull('direct_item_id')
+                  ->where(function ($qqq) use ($userId) {
+                      $qqq->where('user_one_id', $userId)->orWhere('user_two_id', $userId);
+                  });
             });
-        })->orWhere(function ($q) use ($userId) {
-            $q->whereNotNull('direct_item_id')
-              ->where(function ($qq) use ($userId) {
-                  $qq->where('user_one_id', $userId)->orWhere('user_two_id', $userId);
-              });
-        })->with(['lostItem.user', 'foundItem.user', 'directItem.user', 'messages' => function($q) {
+        })->whereDoesntHave('hides', function ($q) use ($userId) {
+            $q->where('user_id', $userId);
+        })->with(['lostItem.user', 'foundItem.user', 'directItem.user', 'userOne:id,name', 'userTwo:id,name', 'messages' => function($q) {
             $q->latest()->limit(1);
         }])->get();
 
@@ -59,6 +64,10 @@ class ChatController extends Controller
             'lost_item_id' => $lostItem->id,
             'found_item_id' => $foundItem->id,
         ]);
+
+        // Reopening restores the conversation for the requesting user.
+        ConversationHide::where('conversation_id', $conversation->id)
+            ->where('user_id', $userId)->delete();
 
         return response()->json([
             'success' => true,
@@ -141,10 +150,41 @@ class ChatController extends Controller
             'user_two_id' => $two,
         ]);
 
+        // Reopening via Message Reporter restores the conversation for the
+        // requesting user instead of creating a duplicate.
+        ConversationHide::where('conversation_id', $conversation->id)
+            ->where('user_id', $userId)->delete();
+
         return response()->json([
             'success' => true,
-            'conversation' => $conversation->load(['lostItem.user', 'foundItem.user', 'directItem.user'])
+            'conversation' => $conversation->load(['lostItem.user', 'foundItem.user', 'directItem.user', 'userOne:id,name', 'userTwo:id,name'])
         ], $conversation->wasRecentlyCreated ? 201 : 200);
+    }
+
+    /**
+     * v1.1.3 Delete Conversation (per-user hide).
+     *
+     * Removes the conversation from the authenticated user's Messages list
+     * only. The conversation, its messages, and the other participant's copy
+     * are preserved. Idempotent: hiding an already-hidden conversation
+     * succeeds without side effects.
+     */
+    public function destroyConversation(Request $request, Conversation $conversation)
+    {
+        $userId = $request->user()->id;
+        if (!$this->isParticipant($conversation, $userId)) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized.'], 403);
+        }
+
+        ConversationHide::firstOrCreate([
+            'conversation_id' => $conversation->id,
+            'user_id' => $userId,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Conversation deleted.'
+        ]);
     }
 
     /**

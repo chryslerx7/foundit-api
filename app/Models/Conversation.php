@@ -45,4 +45,14 @@ class Conversation extends Model
     {
         return $this->direct_item_id !== null;
     }
+
+    public function hides()
+    {
+        return $this->hasMany(ConversationHide::class);
+    }
+
+    public function isHiddenFor(int $userId): bool
+    {
+        return $this->hides()->where('user_id', $userId)->exists();
+    }
 }

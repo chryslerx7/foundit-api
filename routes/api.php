@@ -33,6 +33,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::get('/conversations', [\App\Http\Controllers\Api\ChatController::class, 'index']);
     Route::post('/conversations', [\App\Http\Controllers\Api\ChatController::class, 'start']);
+    Route::delete('/conversations/{conversation}', [\App\Http\Controllers\Api\ChatController::class, 'destroyConversation']);
     Route::get('/conversations/{conversation}/messages', [\App\Http\Controllers\Api\ChatController::class, 'getMessages']);
     Route::post('/conversations/{conversation}/messages', [\App\Http\Controllers\Api\ChatController::class, 'sendMessage']);
     Route::delete('/messages/{message}', [\App\Http\Controllers\Api\ChatController::class, 'destroyMessage']);
