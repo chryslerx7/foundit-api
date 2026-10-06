@@ -95,6 +95,31 @@ class ChatController extends Controller
             return response()->json(['success' => false, 'message' => 'Unauthorized.'], 403);
         }
 
+        // Delete Conversation != Block User. Resolve the recipient (the other
+        // participant) and apply the hide-state rules before storing anything.
+        $recipientId = $this->resolveRecipientId($conversation, $userId);
+
+        if ($recipientId !== null) {
+            $senderHidden = $conversation->hides()->where('user_id', $userId)->exists();
+            $recipientHidden = $conversation->hides()->where('user_id', $recipientId)->exists();
+
+            if ($senderHidden && $recipientHidden) {
+                // Mutually deleted/closed: do NOT store or deliver a message
+                // into the closed conversation, and do NOT silently reopen it.
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Conversation no longer active. Start a new conversation to contact this user.',
+                ], 410);
+            }
+
+            if ($recipientHidden) {
+                // One-sided hide: the incoming message restores the existing
+                // conversation for the recipient only. Same conversation id,
+                // no duplicate; the sender's hide state is left untouched.
+                $conversation->hides()->where('user_id', $recipientId)->delete();
+            }
+        }
+
         $request->validate([
             'message' => 'required|string|max:5000',
         ]);
@@ -150,8 +175,11 @@ class ChatController extends Controller
             'user_two_id' => $two,
         ]);
 
-        // Reopening via Message Reporter restores the conversation for the
-        // requesting user instead of creating a duplicate.
+        // Explicit Message Reporter intent restores the conversation for the
+        // requesting user instead of creating a duplicate. This is the only
+        // path that may reopen a mutually deleted conversation, and it clears
+        // ONLY the requester's hide row: the other participant is restored
+        // later by the ordinary incoming-message rule when a message arrives.
         ConversationHide::where('conversation_id', $conversation->id)
             ->where('user_id', $userId)->delete();
 
@@ -200,5 +228,32 @@ class ChatController extends Controller
 
         return optional($conversation->lostItem)->user_id === $userId
             || optional($conversation->foundItem)->user_id === $userId;
+    }
+
+    /**
+     * Resolve the message recipient: the participant that is NOT the sender.
+     *
+     * Direct conversation: the other of user_one/user_two.
+     * Legacy pair conversation: the owner of the item the sender does not own.
+     * Returns null when no distinct recipient exists (e.g. self conversation).
+     */
+    private function resolveRecipientId(Conversation $conversation, int $senderId): ?int
+    {
+        if ($conversation->direct_item_id !== null) {
+            $one = (int) $conversation->user_one_id;
+            $two = (int) $conversation->user_two_id;
+            if ($senderId === $one) return $two;
+            if ($senderId === $two) return $one;
+            return null;
+        }
+
+        $lostOwnerId = optional($conversation->lostItem)->user_id;
+        $foundOwnerId = optional($conversation->foundItem)->user_id;
+
+        if ($lostOwnerId === null || $foundOwnerId === null) return null;
+        if ($senderId === (int) $lostOwnerId && $senderId === (int) $foundOwnerId) return null;
+        if ($senderId === (int) $lostOwnerId) return (int) $foundOwnerId;
+        if ($senderId === (int) $foundOwnerId) return (int) $lostOwnerId;
+        return null;
     }
 }
