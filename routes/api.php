@@ -25,6 +25,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('/items/{item}', [ItemController::class, 'destroy']);
     Route::post('/items/{item}/resolve', [ItemController::class, 'resolve']);
     Route::get('/items/{item}/matches', [ItemController::class, 'matches']);
+    Route::post('/items/{item}/conversation', [\App\Http\Controllers\Api\ChatController::class, 'startFromItem']);
     Route::get('/my-reports', [ItemController::class, 'myReports']);
 
     Route::get('/notifications', [NotificationController::class, 'index']);
