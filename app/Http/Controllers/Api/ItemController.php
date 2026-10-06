@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Item;
+use App\Models\ItemImage;
 use App\Models\Notification;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -12,7 +13,7 @@ class ItemController extends Controller
 {
     public function index(Request $request)
     {
-        $query = Item::with('user:id,name,student_id')
+        $query = Item::with(['user:id,name,student_id', 'images'])
             ->where('status', 'ACTIVE')
             ->latest();
 
@@ -32,6 +33,10 @@ class ItemController extends Controller
 
         if ($request->filled('category') && strtoupper($request->category) !== 'ALL') {
             $query->where('category', $request->category);
+        }
+
+        if ($request->filled('date')) {
+            $query->whereDate('date', $request->date);
         }
 
         $items = $query->paginate(50);
@@ -58,16 +63,45 @@ class ItemController extends Controller
             'type' => ['required','in:LOST,FOUND'],
             'contact' => ['nullable','string','max:200'],
             'image' => ['nullable','image','mimes:jpg,jpeg,png,webp','max:5120'],
+            'images' => ['nullable','array','max:5'],
+            'images.*' => ['image','mimes:jpg,jpeg,png,webp','max:5120'],
         ]);
 
         $data['user_id'] = $request->user()->id;
         $data['status'] = 'ACTIVE';
 
+        $uploadedPaths = [];
+
+        // Handle single image fallback
         if ($request->hasFile('image')) {
-            $data['image'] = $request->file('image')->store('items', 'public');
+            $uploadedPaths[] = $request->file('image')->store('items', 'public');
         }
 
-        $item = Item::create($data)->load('user:id,name,student_id');
+        // Handle multiple images[]
+        if ($request->hasFile('images')) {
+            foreach ($request->file('images') as $file) {
+                if (count($uploadedPaths) < 5) {
+                    $uploadedPaths[] = $file->store('items', 'public');
+                }
+            }
+        }
+
+        if (!empty($uploadedPaths)) {
+            $data['image'] = $uploadedPaths[0]; // Legacy cover image
+        }
+
+        $item = Item::create($data);
+
+        // Store in item_images
+        foreach ($uploadedPaths as $index => $path) {
+            ItemImage::create([
+                'item_id' => $item->id,
+                'path' => $path,
+                'position' => $index,
+            ]);
+        }
+
+        $item->load(['user:id,name,student_id', 'images']);
 
         Notification::create([
             'user_id' => $request->user()->id,
@@ -86,7 +120,7 @@ class ItemController extends Controller
     {
         return response()->json([
             'success' => true,
-            'item' => $item->load('user:id,name,student_id')
+            'item' => $item->load(['user:id,name,student_id', 'images'])
         ]);
     }
 
@@ -104,28 +138,62 @@ class ItemController extends Controller
             'type' => ['required','in:LOST,FOUND'],
             'contact' => ['nullable','string','max:200'],
             'image' => ['nullable','image','mimes:jpg,jpeg,png,webp','max:5120'],
+            'images' => ['nullable','array','max:5'],
+            'images.*' => ['image','mimes:jpg,jpeg,png,webp','max:5120'],
         ]);
 
-        if ($request->hasFile('image')) {
-            if ($item->image) {
-                Storage::disk('public')->delete($item->image);
-            }
-            $data['image'] = $request->file('image')->store('items', 'public');
-        }
+        $hasNewImages = $request->hasFile('image') || $request->hasFile('images');
 
-        $item->update($data);
+        if ($hasNewImages) {
+            // Collect new uploaded paths
+            $newPaths = [];
+            if ($request->hasFile('image')) {
+                $newPaths[] = $request->file('image')->store('items', 'public');
+            }
+            if ($request->hasFile('images')) {
+                foreach ($request->file('images') as $file) {
+                    if (count($newPaths) < 5) {
+                        $newPaths[] = $file->store('items', 'public');
+                    }
+                }
+            }
+
+            if (!empty($newPaths)) {
+                // Delete old images & records if replacing
+                if ($item->image) {
+                    Storage::disk('public')->delete($item->image);
+                }
+                foreach ($item->images as $oldImg) {
+                    Storage::disk('public')->delete($oldImg->path);
+                    $oldImg->delete();
+                }
+
+                $data['image'] = $newPaths[0];
+                $item->update($data);
+
+                foreach ($newPaths as $index => $path) {
+                    ItemImage::create([
+                        'item_id' => $item->id,
+                        'path' => $path,
+                        'position' => $index,
+                    ]);
+                }
+            }
+        } else {
+            $item->update($data);
+        }
 
         return response()->json([
             'success' => true,
             'message' => 'Report updated.',
-            'item' => $item->load('user:id,name,student_id')
+            'item' => $item->load(['user:id,name,student_id', 'images'])
         ]);
     }
 
     public function myReports(Request $request)
     {
         $items = Item::where('user_id',$request->user()->id)
-            ->with('user:id,name,student_id')
+            ->with(['user:id,name,student_id', 'images'])
             ->latest()->get();
 
         return response()->json([
@@ -162,6 +230,11 @@ class ItemController extends Controller
             Storage::disk('public')->delete($item->image);
         }
 
+        foreach ($item->images as $img) {
+            Storage::disk('public')->delete($img->path);
+            $img->delete();
+        }
+
         $item->delete();
 
         return response()->json(['success'=>true,'message'=>'Report deleted.']);
@@ -178,7 +251,7 @@ class ItemController extends Controller
         $candidates = Item::where('id', '!=', $item->id)
             ->where('type', $opposite)
             ->where('status', 'ACTIVE')
-            ->with('user:id,name,student_id')
+            ->with(['user:id,name,student_id', 'images'])
             ->get();
 
         $scoredMatches = $candidates->map(function ($candidate) use ($item) {
@@ -247,4 +320,3 @@ class ItemController extends Controller
         ]);
     }
 }
-

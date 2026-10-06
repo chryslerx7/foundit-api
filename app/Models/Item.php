@@ -17,9 +17,16 @@ class Item extends Model
 
     protected $appends = ['image_url'];
 
+    protected $with = ['images'];
+
     public function user()
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function images()
+    {
+        return $this->hasMany(ItemImage::class)->orderBy('position');
     }
 
     public function getImageUrlAttribute()
