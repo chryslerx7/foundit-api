@@ -29,7 +29,13 @@ class AuthController extends Controller
             'password' => ['required','string','min:8','confirmed'],
         ]);
 
-        $data['role'] = 'student';
+        $email = strtolower(trim($data['email']));
+        $domain = substr(strrchr($email, "@"), 1);
+        if ($domain === 'bpsu.edu.ph') {
+            $data['role'] = 'student';
+        } else {
+            $data['role'] = 'guest';
+        }
 
         $user = User::create($data);
         $token = $user->createToken('FoundIT Android')->plainTextToken;
