@@ -24,7 +24,7 @@ class AuthController extends Controller
 
         $data = $request->validate([
             'name' => ['required','string','max:120'],
-            'student_id' => ['required','string','max:50','unique:users,student_id'],
+            'student_id' => ['nullable','string','max:50','unique:users,student_id'],
             'email' => ['required','email','max:120','unique:users,email'],
             'password' => ['required','string','min:8','confirmed'],
         ]);
@@ -33,8 +33,19 @@ class AuthController extends Controller
         $domain = substr(strrchr($email, "@"), 1);
         if ($domain === 'bpsu.edu.ph') {
             $data['role'] = 'student';
+            if (empty($data['student_id'])) {
+                throw ValidationException::withMessages([
+                    'student_id' => ['The student id field is required for BPSU student accounts.']
+                ]);
+            }
         } else {
             $data['role'] = 'guest';
+            if (empty($data['student_id'])) {
+                do {
+                    $studentId = 'GUEST-' . strtoupper(\Illuminate\Support\Str::random(10));
+                } while (User::where('student_id', $studentId)->exists());
+                $data['student_id'] = $studentId;
+            }
         }
 
         $user = User::create($data);

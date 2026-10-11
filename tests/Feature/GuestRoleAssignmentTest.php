@@ -24,6 +24,20 @@ class GuestRoleAssignmentTest extends TestCase
                  ->assertJsonPath('user.role', 'student');
     }
 
+    public function test_bpsu_email_without_student_id_is_rejected()
+    {
+        $response = $this->postJson('/api/register', [
+            'name' => 'BPSU Student No ID',
+            'student_id' => '',
+            'email' => 'student@bpsu.edu.ph',
+            'password' => 'password123',
+            'password_confirmation' => 'password123',
+        ]);
+
+        $response->assertStatus(422)
+                 ->assertJsonValidationErrors(['student_id']);
+    }
+
     public function test_uppercase_bpsu_email_domain_assigns_student_role_case_insensitively()
     {
         $response = $this->postJson('/api/register', [
@@ -38,11 +52,11 @@ class GuestRoleAssignmentTest extends TestCase
                  ->assertJsonPath('user.role', 'student');
     }
 
-    public function test_gmail_email_domain_assigns_guest_role()
+    public function test_gmail_email_domain_assigns_guest_role_without_student_id()
     {
         $response = $this->postJson('/api/register', [
             'name' => 'Gmail User',
-            'student_id' => '2026-0003',
+            'student_id' => '',
             'email' => 'person@gmail.com',
             'password' => 'password123',
             'password_confirmation' => 'password123',
@@ -50,6 +64,22 @@ class GuestRoleAssignmentTest extends TestCase
 
         $response->assertStatus(201)
                  ->assertJsonPath('user.role', 'guest');
+        $this->assertNotNull($response->json('user.student_id'));
+    }
+
+    public function test_notbpsu_domain_assigns_guest_role_without_student_id()
+    {
+        $response = $this->postJson('/api/register', [
+            'name' => 'Not BPSU User',
+            'student_id' => '',
+            'email' => 'user@notbpsu.edu.ph',
+            'password' => 'password123',
+            'password_confirmation' => 'password123',
+        ]);
+
+        $response->assertStatus(201)
+                 ->assertJsonPath('user.role', 'guest');
+        $this->assertNotNull($response->json('user.student_id'));
     }
 
     public function test_other_email_domain_assigns_guest_role()
@@ -98,7 +128,6 @@ class GuestRoleAssignmentTest extends TestCase
     {
         $user = User::factory()->create([
             'role' => 'guest',
-            'student_id' => '2026-9999',
             'email' => 'guest@gmail.com'
         ]);
 
