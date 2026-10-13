@@ -89,9 +89,33 @@ class AuthController extends Controller
     {
         $request->user()->currentAccessToken()?->delete();
 
+        if ($request->filled('token')) {
+            \App\Models\DeviceToken::where('user_id', $request->user()->id)
+                ->where('token', $request->input('token'))
+                ->delete();
+        }
+
         return response()->json([
             'success' => true,
             'message' => 'Logged out.'
+        ]);
+    }
+
+    public function registerDeviceToken(Request $request)
+    {
+        $data = $request->validate([
+            'token' => ['required', 'string', 'max:255'],
+        ]);
+
+        $user = $request->user();
+        \App\Models\DeviceToken::updateOrCreate(
+            ['token' => $data['token']],
+            ['user_id' => $user->id]
+        );
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Device token registered.'
         ]);
     }
 

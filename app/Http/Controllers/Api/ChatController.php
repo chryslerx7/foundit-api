@@ -129,6 +129,18 @@ class ChatController extends Controller
             'message' => $request->message,
         ]);
 
+        if ($recipientId !== null) {
+            $recipient = \App\Models\User::find($recipientId);
+            if ($recipient) {
+                \App\Services\FcmService::sendToUser(
+                    $recipient,
+                    'New Message',
+                    'You have received a new message regarding a report.',
+                    ['type' => 'message', 'conversation_id' => (string)$conversation->id]
+                );
+            }
+        }
+
         return response()->json([
             'success' => true,
             'message' => $message->load('sender:id,name')

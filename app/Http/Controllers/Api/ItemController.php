@@ -109,6 +109,15 @@ class ItemController extends Controller
             'message' => "Your {$item->type} report for {$item->item_name} was submitted successfully.",
         ]);
 
+        \App\Models\User::where('id', '!=', $request->user()->id)->get()->each(function ($otherUser) use ($item) {
+            \App\Services\FcmService::sendToUser(
+                $otherUser,
+                'New ' . ucfirst(strtolower($item->type)) . ' Report',
+                "A new item '{$item->item_name}' was reported near {$item->location}.",
+                ['type' => 'item', 'item_id' => (string)$item->id]
+            );
+        });
+
         return response()->json([
             'success' => true,
             'message' => 'Report submitted.',
@@ -217,6 +226,13 @@ class ItemController extends Controller
             'title' => 'Report resolved',
             'message' => "{$item->item_name} has been marked as resolved.",
         ]);
+
+        \App\Services\FcmService::sendToUser(
+            $item->user,
+            'Report Resolved',
+            "Your report '{$item->item_name}' has been marked as resolved.",
+            ['type' => 'item', 'item_id' => (string)$item->id]
+        );
 
         return response()->json(['success'=>true,'message'=>'Report resolved.']);
     }
