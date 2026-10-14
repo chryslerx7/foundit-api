@@ -136,7 +136,8 @@ class ChatController extends Controller
                     $recipient,
                     'New Message',
                     'You have received a new message regarding a report.',
-                    ['type' => 'message', 'conversation_id' => (string)$conversation->id]
+                    ['type' => 'message', 'conversation_id' => (string)$conversation->id],
+                    $conversation->id
                 );
             }
         }
@@ -224,6 +225,33 @@ class ChatController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Conversation deleted.'
+        ]);
+    }
+
+    public function presence(Request $request, Conversation $conversation)
+    {
+        $request->validate([
+            'device_token' => 'required|string|max:500',
+        ]);
+
+        $userId = Auth::id();
+        if (!$this->isParticipant($conversation, $userId)) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized.'], 403);
+        }
+
+        $deviceToken = $request->input('device_token');
+
+        \App\Models\DeviceToken::updateOrCreate(
+            ['token' => $deviceToken],
+            ['user_id' => $userId]
+        );
+
+        $cacheKey = 'device_presence_' . hash('sha256', $deviceToken);
+        \Illuminate\Support\Facades\Cache::put($cacheKey, $conversation->id, 15);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Presence updated.'
         ]);
     }
 

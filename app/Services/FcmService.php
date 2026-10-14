@@ -14,7 +14,7 @@ class FcmService
      * Keeps payloads privacy-safe (generic summaries, no PII or sensitive text).
      * Handles invalid tokens (cleans up stale tokens) and missing credentials gracefully.
      */
-    public static function sendToUser(User $user, string $title, string $body, array $data = []): void
+    public static function sendToUser(User $user, string $title, string $body, array $data = [], ?int $conversationId = null): void
     {
         $tokens = $user->deviceTokens()->pluck('token')->toArray();
 
@@ -41,6 +41,14 @@ class FcmService
 
         foreach ($tokens as $token) {
             try {
+                if ($conversationId !== null) {
+                    $cacheKey = 'device_presence_' . hash('sha256', $token);
+                    $activeConvId = Cache::get($cacheKey);
+                    if ($activeConvId && (int)$activeConvId === (int)$conversationId) {
+                        continue;
+                    }
+                }
+
                 $payload = [
                     'message' => [
                         'token' => $token,
