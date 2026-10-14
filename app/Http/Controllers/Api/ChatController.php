@@ -147,7 +147,15 @@ class ChatController extends Controller
             if (!$itemId) {
                 return response()->json(['success' => false, 'message' => 'Item ID is required for item share.'], 422);
             }
+            $item = Item::find($itemId);
+            if (!$item) {
+                return response()->json(['success' => false, 'message' => 'Referenced item not found.'], 404);
+            }
+
             $validItem = false;
+            if ($item->user_id === $userId) {
+                $validItem = true;
+            }
             if ($conversation->direct_item_id !== null && (int)$conversation->direct_item_id === (int)$itemId) {
                 $validItem = true;
             }
@@ -159,7 +167,7 @@ class ChatController extends Controller
             }
 
             if (!$validItem) {
-                return response()->json(['success' => false, 'message' => 'Selected item is not part of this conversation context.'], 422);
+                return response()->json(['success' => false, 'message' => 'Selected item is not part of this conversation context or owned by sender.'], 422);
             }
 
             if (empty($messageText)) {
