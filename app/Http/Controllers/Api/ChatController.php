@@ -75,6 +75,19 @@ class ChatController extends Controller
         ]);
     }
 
+    public function show(Request $request, Conversation $conversation)
+    {
+        $userId = $request->user()->id;
+        if (!$this->isParticipant($conversation, $userId)) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized.'], 403);
+        }
+
+        return response()->json([
+            'success' => true,
+            'conversation' => $conversation->load(['lostItem.user', 'foundItem.user', 'directItem.user', 'userOne:id,name', 'userTwo:id,name'])
+        ]);
+    }
+
     public function getMessages(Conversation $conversation)
     {
         $userId = Auth::id();
@@ -84,7 +97,7 @@ class ChatController extends Controller
 
         return response()->json([
             'success' => true,
-            'messages' => $conversation->messages()->with('sender:id,name')->get()
+            'messages' => $conversation->messages()->with(['sender:id,name', 'item.user'])->get()
         ]);
     }
 
@@ -121,12 +134,48 @@ class ChatController extends Controller
         }
 
         $request->validate([
-            'message' => 'required|string|max:5000',
+            'message' => 'nullable|string|max:5000',
+            'message_type' => 'nullable|string|in:text,item_share',
+            'item_id' => 'nullable|exists:items,id',
         ]);
+
+        $messageType = $request->input('message_type', 'text');
+        $itemId = $request->input('item_id');
+        $messageText = $request->input('message', '');
+
+        if ($messageType === 'item_share') {
+            if (!$itemId) {
+                return response()->json(['success' => false, 'message' => 'Item ID is required for item share.'], 422);
+            }
+            $validItem = false;
+            if ($conversation->direct_item_id !== null && (int)$conversation->direct_item_id === (int)$itemId) {
+                $validItem = true;
+            }
+            if ($conversation->lost_item_id !== null && (int)$conversation->lost_item_id === (int)$itemId) {
+                $validItem = true;
+            }
+            if ($conversation->found_item_id !== null && (int)$conversation->found_item_id === (int)$itemId) {
+                $validItem = true;
+            }
+
+            if (!$validItem) {
+                return response()->json(['success' => false, 'message' => 'Selected item is not part of this conversation context.'], 422);
+            }
+
+            if (empty($messageText)) {
+                $messageText = 'Shared an item report.';
+            }
+        } else {
+            if (empty($messageText)) {
+                return response()->json(['success' => false, 'message' => 'The message field is required.'], 422);
+            }
+        }
 
         $message = $conversation->messages()->create([
             'sender_id' => $userId,
-            'message' => $request->message,
+            'message' => $messageText,
+            'message_type' => $messageType,
+            'item_id' => $itemId,
         ]);
 
         if ($recipientId !== null) {
@@ -134,8 +183,8 @@ class ChatController extends Controller
             if ($recipient) {
                 \App\Services\FcmService::sendToUser(
                     $recipient,
-                    'New Message',
-                    'You have received a new message regarding a report.',
+                    $messageType === 'item_share' ? 'Item Report Shared' : 'New Message',
+                    $messageType === 'item_share' ? 'An item report was shared in chat.' : 'You have received a new message regarding a report.',
                     ['type' => 'message', 'conversation_id' => (string)$conversation->id],
                     $conversation->id
                 );
@@ -144,7 +193,7 @@ class ChatController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => $message->load('sender:id,name')
+            'message' => $message->load(['sender:id,name', 'item.user'])
         ]);
     }
 
